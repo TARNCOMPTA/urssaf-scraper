@@ -1,0 +1,17 @@
+{
+  "name": "urssaf-scraper",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Récupération des appels de cotisations URSSAF (compte cabinet tiers déclarant, par SIRET)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "postinstall": "playwright install chromium"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "playwright": "^1.50.1"
+  }
+}
