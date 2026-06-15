@@ -6,11 +6,19 @@ un seul compte cabinet donne accès à tous les clients, chacun identifié par s
 Le robot se connecte, recherche le client par SIRET, ouvre sa **messagerie**, et télécharge
 les **appels de cotisations** (PDF) — automatiquement, via Playwright.
 
+## Prérequis
+
+- **Node.js 22 ou supérieur** (requis par le module natif `node:sqlite`). À installer une
+  seule fois depuis https://nodejs.org. Vérifier avec `node -v`.
+
 ## Lancement
 
 1. Double-cliquer sur **`Démarrer.bat`**
-2. Le navigateur s'ouvre sur http://localhost:3000 (sinon, ouvrir cette adresse)
-3. Laisser la fenêtre noire ouverte (c'est le serveur). Pour arrêter : la fermer.
+2. **Au premier lancement uniquement**, les composants s'installent automatiquement
+   (dépendances + navigateur Chromium) : cela prend quelques minutes. Les fois suivantes,
+   le démarrage est immédiat.
+3. Le navigateur s'ouvre sur http://localhost:3000 (sinon, ouvrir cette adresse)
+4. Laisser la fenêtre noire ouverte (c'est le serveur). Pour arrêter : la fermer.
 
 ## Première utilisation
 
