@@ -95,7 +95,9 @@ async function connecterCabinet(page, cabinet, navTimeout, log) {
     const e = new Error('Connexion cabinet refusee (identifiants cabinet ?)'); e.kind = 'mdp'; throw e;
   }
   await page.waitForLoadState('networkidle').catch(() => {});
-  await page.waitForTimeout(6000);
+  // On attend que le champ de recherche soit pret (au lieu d'un delai fixe).
+  await page.waitForSelector('#recherche, input.input-search', { timeout: 15000 }).catch(() => {});
+  await page.waitForTimeout(800);
   log('Connecte au tableau de bord cabinet.');
 }
 
@@ -170,8 +172,11 @@ async function recupererAppelsClient(context, page, client, { baseFolder, navTim
       await champ.fill('');
       await champ.fill(terme);
       await page.locator('button:has-text("Rechercher")').first().click().catch(() => {});
-      await page.waitForTimeout(3500);
-      return page.locator('a:has-text("Accéder"), button:has-text("Accéder")').first();
+      // On attend l'apparition du bouton « Acceder » (resultat trouve) plutot
+      // qu'un delai fixe : client present -> on continue tout de suite.
+      const lien = page.locator('a:has-text("Accéder"), button:has-text("Accéder")').first();
+      await lien.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+      return lien;
     }
     log(`Recherche du compte ${siret}`);
     let acceder = await rechercher(siret);
@@ -184,17 +189,19 @@ async function recupererAppelsClient(context, page, client, { baseFolder, navTim
     // 2. Acceder au dossier client (webti)
     const popupP = page.waitForEvent('popup', { timeout: 12000 }).catch(() => null);
     await acceder.click();
-    await page.waitForTimeout(4000);
     const cli = (await popupP) || page;
+    await cli.waitForLoadState('domcontentloaded').catch(() => {});
     await cli.waitForLoadState('networkidle').catch(() => {});
-    await cli.waitForTimeout(5000);
     await fermerCookies(cli);
+    // On attend le lien « Messagerie » (signal que le dossier client est pret).
+    const lienMsg = cli.locator('a:visible, button:visible', { hasText: 'Messagerie' }).first();
+    await lienMsg.waitFor({ state: 'visible', timeout: 20000 }).catch(() => {});
     log('Acces au dossier client.');
 
     // 3. Messagerie
     const popup2P = cli.waitForEvent('popup', { timeout: 12000 }).catch(() => null);
-    await cli.locator('a:visible, button:visible', { hasText: 'Messagerie' }).first().click().catch(() => {});
-    await cli.waitForTimeout(4000);
+    await lienMsg.click().catch(() => {});
+    await cli.waitForTimeout(800);
     const msg = (await popup2P) || cli;
     log('Ouverture de la messagerie...');
     await msg.waitForURL(/dcl\.urssaf\.fr\/messagerie|Rico\.action/, { timeout: navTimeout }).catch(() => {});
@@ -202,7 +209,7 @@ async function recupererAppelsClient(context, page, client, { baseFolder, navTim
     await msg
       .waitForFunction(() => document.querySelectorAll('[onclick*="apercuMsg"]').length > 0, null, { timeout: 30000 })
       .catch(() => log('Avertissement : liste des messages non detectee (delai).'));
-    await msg.waitForTimeout(1500);
+    await msg.waitForTimeout(500);
 
     // 4. Tous les documents de la messagerie -> PDF.
     // Les liens de pieces jointes (showAttachement.action) sont DEJA presents
@@ -322,8 +329,9 @@ async function recupererAppelsClient(context, page, client, { baseFolder, navTim
 async function retourTableauBord(context, page, navTimeout) {
   for (const p of context.pages()) { if (p !== page) await p.close().catch(() => {}); }
   await page.goto(TDBEC_ACCUEIL, { waitUntil: 'domcontentloaded' }).catch(() => {});
-  await page.waitForLoadState('networkidle').catch(() => {});
-  await page.waitForTimeout(3500);
+  // On attend le champ de recherche (tableau de bord pret) au lieu d'un delai fixe.
+  await page.waitForSelector('#recherche, input.input-search', { timeout: 15000 }).catch(() => {});
+  await page.waitForTimeout(600);
 }
 
 // La session cabinet URSSAF expire apres ~1h. On la considere vivante si on est
