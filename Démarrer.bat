@@ -1,5 +1,5 @@
 @echo off
-title URSSAF - Appels de cotisations
+title URSSAF - Demarrage
 cd /d "%~dp0"
 
 rem --- Verifier que Node.js est installe ---
@@ -42,13 +42,17 @@ if not exist "node_modules" (
   echo.
 )
 
-echo Demarrage du serveur URSSAF...
-echo Laissez cette fenetre ouverte. Pour arreter : fermez-la.
-echo Adresse : http://localhost:3000
+rem --- Mise a jour automatique depuis GitHub (avant de demarrer le serveur) ---
+echo Verification des mises a jour...
+node maj.js
+
+rem --- Demarrage du serveur SANS fenetre visible ---
 echo.
+echo Lancement de l'application ^(le serveur tourne en arriere-plan, sans fenetre^).
+echo Le navigateur va s'ouvrir sur http://localhost:3000
+echo Pour arreter : bouton "Quitter" dans la page, ou double-clic sur Quitter.bat
+start "" wscript.exe "%~dp0_serveur-cache.vbs"
 
-rem Ouvre le navigateur apres quelques secondes
-start "" cmd /c "timeout /t 3 >nul & start http://localhost:3000"
-
-node --disable-warning=ExperimentalWarning server.js
-pause
+rem Cette fenetre se ferme : l'application reste active en arriere-plan.
+timeout /t 3 >nul
+exit

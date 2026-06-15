@@ -430,3 +430,52 @@ rafraichir();
 chargerReglages();
 suivreEtat();
 setInterval(chargerRuns, 5000);
+
+// ---- Journal en direct (SSE) ----------------------------------------------
+const journalEl = $('#journal');
+let journalAuto = true; // auto-scroll tant qu'on est proche du bas
+
+function ajouterLigne(evt) {
+  const div = document.createElement('div');
+  div.className = 'jline';
+  if (/ERREUR|echec|échec|refus|introuvable|impossible/i.test(evt.m)) div.classList.add('err');
+  else if (/\bOK\b|Termine|terminé|succes|succès|Connecte|à jour|disponible/i.test(evt.m)) div.classList.add('ok');
+  const heure = new Date(evt.t).toLocaleTimeString('fr-FR');
+  div.innerHTML = `<span class="jt">${heure}</span>${esc(evt.m)}`;
+  journalEl.appendChild(div);
+  while (journalEl.childElementCount > 800) journalEl.removeChild(journalEl.firstChild);
+  if (journalAuto) journalEl.scrollTop = journalEl.scrollHeight;
+}
+
+function connecterJournal() {
+  const etat = $('#journal-etat');
+  const es = new EventSource('/api/logs/stream');
+  es.onopen = () => { etat.textContent = 'connecté'; etat.className = 'badge ok'; };
+  es.onerror = () => { etat.textContent = 'reconnexion…'; etat.className = 'badge warn'; };
+  es.onmessage = (e) => { try { ajouterLigne(JSON.parse(e.data)); } catch { /* ignore */ } };
+}
+connecterJournal();
+
+journalEl.addEventListener('scroll', () => {
+  journalAuto = journalEl.scrollTop + journalEl.clientHeight >= journalEl.scrollHeight - 30;
+});
+$('#journal-clear').addEventListener('click', () => { journalEl.innerHTML = ''; });
+$('#journal-toggle').addEventListener('click', (e) => {
+  const reduit = journalEl.classList.toggle('reduit');
+  e.target.textContent = reduit ? 'Agrandir' : 'Réduire';
+});
+
+// ---- Quitter l'application -------------------------------------------------
+$('#btn-quit').addEventListener('click', async () => {
+  if (!confirm('Arrêter l\'application ?\nLe serveur va se fermer. Relance-le avec « Démarrer ».')) return;
+  try { await api('/api/quit', { method: 'POST' }); } catch { /* le serveur se ferme */ }
+  document.body.innerHTML =
+    '<div style="padding:60px 24px;text-align:center;font-family:Segoe UI,system-ui,sans-serif;color:#334155">' +
+    '<h2>Application arrêtée</h2><p>Tu peux fermer cet onglet. Pour relancer : double-clique sur « Démarrer ».</p></div>';
+});
+
+// ---- Version ---------------------------------------------------------------
+async function chargerVersion() {
+  try { const v = await api('/api/version'); if (v.version) $('#pied-version').textContent = 'v' + v.version; } catch { /* ignore */ }
+}
+chargerVersion();

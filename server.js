@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import {
   listClients, getClient, createClient, updateClient, deleteClient, getClientBySiret,
@@ -18,6 +18,48 @@ app.use(express.static(resolve(__dirname, 'public')));
 
 const enCours = new Set();
 let stopAll = false;
+
+// Version de l'application (lue dans package.json).
+let APP_VERSION = '0.0.0';
+try { APP_VERSION = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8')).version || APP_VERSION; } catch { /* ignore */ }
+
+// ---- Journal en direct (Server-Sent Events) -------------------------------
+// Chaque message de log du scraper est diffuse aux pages ouvertes ET conserve
+// dans un petit historique (pour qu'un nouvel onglet retrouve l'avancement).
+const sseClients = new Set();
+const logBuffer = [];
+const LOG_MAX = 500;
+
+function pushLog(ligne) {
+  const evt = { t: Date.now(), m: String(ligne) };
+  logBuffer.push(evt);
+  if (logBuffer.length > LOG_MAX) logBuffer.shift();
+  const data = `data: ${JSON.stringify(evt)}\n\n`;
+  for (const res of sseClients) { try { res.write(data); } catch { /* client parti */ } }
+}
+
+app.get('/api/logs/stream', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.write('retry: 3000\n\n');
+  for (const evt of logBuffer) res.write(`data: ${JSON.stringify(evt)}\n\n`); // historique recent
+  sseClients.add(res);
+  const ka = setInterval(() => { try { res.write(': keepalive\n\n'); } catch { /* ignore */ } }, 25000);
+  req.on('close', () => { clearInterval(ka); sseClients.delete(res); });
+});
+
+// ---- Version & arret ------------------------------------------------------
+app.get('/api/version', (req, res) => res.json({ version: APP_VERSION }));
+
+app.post('/api/quit', (req, res) => {
+  res.json({ ok: true });
+  pushLog('Arret de l\'application demande. Fermeture du serveur.');
+  setTimeout(() => process.exit(0), 300);
+});
 
 // ---- Comptes cabinet ------------------------------------------------------
 app.get('/api/cabinets', (req, res) => res.json(listCabinets()));
@@ -46,7 +88,7 @@ app.post('/api/cabinets/:id/sync', async (req, res) => {
   if (enCours.has(key)) return res.status(409).json({ error: 'Synchronisation déjà en cours pour ce cabinet.' });
   enCours.add(key);
   try {
-    const rows = await listerClients(cab);
+    const rows = await listerClients(cab, { onLog: pushLog });
     const bilan = importClients(rows, id);
     res.json({ ...bilan, total: rows.length });
   } catch (e) {
@@ -123,7 +165,7 @@ async function lancer(clientId, res) {
   enCours.add(clientId);
   res?.json({ started: true, client: c.nom });
   try {
-    await scrapeClient(c, { cabinet: cab, baseFolder: getSetting('destination_folder') });
+    await scrapeClient(c, { cabinet: cab, baseFolder: getSetting('destination_folder'), onLog: pushLog });
   } finally { enCours.delete(clientId); }
 }
 
@@ -142,7 +184,7 @@ async function lancerLot(clients) {
     if (stopAll) break;
     const cab = getCabinetFull(cabinetId);
     if (!cab || !cab.password) continue; // cabinet non configure -> ignore
-    await scrapeAll(sousClients, { cabinet: cab, baseFolder, shouldStop: () => stopAll });
+    await scrapeAll(sousClients, { cabinet: cab, baseFolder, shouldStop: () => stopAll, onLog: pushLog });
   }
 }
 
@@ -178,4 +220,7 @@ app.get('/api/runs', (req, res) => res.json(listRuns(500)));
 app.get('/api/status', (req, res) => res.json({ enCours: [...enCours], cabinets: cabinetsConfigure() }));
 
 const PORT = Number(process.env.PORT || 3000);
-app.listen(PORT, () => console.log(`\n  URSSAF scraper -> http://localhost:${PORT}\n`));
+app.listen(PORT, () => {
+  console.log(`\n  URSSAF scraper v${APP_VERSION} -> http://localhost:${PORT}\n`);
+  pushLog(`Serveur demarre (v${APP_VERSION}) sur http://localhost:${PORT}`);
+});

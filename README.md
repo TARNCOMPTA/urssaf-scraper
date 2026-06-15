@@ -4,7 +4,7 @@ Application autonome dédiée à l'**URSSAF**, pour un cabinet **tiers déclaran
 un seul compte cabinet donne accès à tous les clients, chacun identifié par son **SIRET**.
 
 Le robot se connecte, recherche le client par SIRET, ouvre sa **messagerie**, et télécharge
-les **appels de cotisations** (PDF) — automatiquement, via Playwright.
+**tous les documents** (PDF) — automatiquement, via Playwright.
 
 ## Prérequis
 
@@ -17,8 +17,25 @@ les **appels de cotisations** (PDF) — automatiquement, via Playwright.
 2. **Au premier lancement uniquement**, les composants s'installent automatiquement
    (dépendances + navigateur Chromium) : cela prend quelques minutes. Les fois suivantes,
    le démarrage est immédiat.
-3. Le navigateur s'ouvre sur http://localhost:3000 (sinon, ouvrir cette adresse)
-4. Laisser la fenêtre noire ouverte (c'est le serveur). Pour arrêter : la fermer.
+3. Le navigateur s'ouvre sur http://localhost:3000 (sinon, ouvrir cette adresse).
+4. **Plus de fenêtre noire à garder ouverte** : le serveur tourne en arrière-plan, sans fenêtre.
+   La petite fenêtre de démarrage se ferme toute seule après le lancement.
+
+### Suivre l'avancement / arrêter
+
+- Le panneau **« Journal en direct »** en haut de la page affiche l'avancement des
+  récupérations en temps réel (connexion, documents téléchargés, erreurs…).
+- Pour **arrêter** l'application : bouton **« ⏻ Quitter »** en haut de la page, ou
+  double-clic sur **`Quitter.bat`**.
+
+## Mise à jour automatique
+
+À chaque démarrage, l'application vérifie sur GitHub si une version plus récente existe et
+**se met à jour toute seule** avant de démarrer (vos données, vos PDF et votre configuration
+sont conservés). Aucune manipulation nécessaire.
+
+> Remarque : cette bascule vers la mise à jour automatique nécessite **une dernière
+> installation manuelle** (re-télécharger le projet une fois). Ensuite, tout est automatique.
 
 ## Première utilisation
 

@@ -131,3 +131,19 @@ dialog h3 { margin: 0 0 18px; }
 .toast-item.err { background: linear-gradient(135deg, var(--err), #ef5350); }
 @keyframes slidein { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 @media (max-width: 620px) { .form-grid { grid-template-columns: 1fr; } dialog { min-width: auto; width: 92vw; } }
+
+/* ---- Journal en direct ---- */
+.badge.warn { background: var(--warn-bg); color: var(--warn); }
+.journal {
+  font-family: "Consolas", "Cascadia Code", monospace; font-size: .82rem; line-height: 1.5;
+  background: #0b1120; color: #cbd5e1; border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  padding: 12px 14px; height: 260px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;
+  transition: height .2s ease;
+}
+[data-theme="light"] .journal { background: #0f172a; color: #e2e8f0; }
+.journal.reduit { height: 64px; }
+.journal .jline { padding: 1px 0; }
+.journal .jline.ok { color: #4ade80; }
+.journal .jline.err { color: #f87171; }
+.journal .jt { color: #64748b; margin-right: 8px; user-select: none; }
+.journal:empty::before { content: "En attente d'activité…"; color: #64748b; font-style: italic; }

@@ -3,3 +3,5 @@ data/
 downloads/
 .env
 *.log
+_maj.zip
+_maj_tmp/
