@@ -326,6 +326,15 @@ async function retourTableauBord(context, page, navTimeout) {
   await page.waitForTimeout(3500);
 }
 
+// La session cabinet URSSAF expire apres ~1h. On la considere vivante si on est
+// bien sur tdbec avec le champ de recherche visible ; sinon il faut se reconnecter
+// (sans quoi toutes les recherches suivantes echouent en « Aucun client trouve »).
+async function sessionVivante(page) {
+  if (!/tdbec\.urssaf\.fr/.test(page.url())) return false;
+  const champ = page.locator('#recherche, input.input-search').first();
+  return await champ.isVisible().catch(() => false);
+}
+
 /**
  * Recupere les appels de cotisations d'UN client (connexion dediee).
  * @param {{id:number, nom:string, siret:string, dossier?:string}} client
@@ -381,12 +390,29 @@ export async function scrapeAll(clients, opts = {}) {
     log(`Traitement de ${clients.length} client(s) sur une seule session...`);
     await page.waitForTimeout(2000);
 
+    let echecsConsecutifs = 0;
     for (let i = 0; i < clients.length; i++) {
       if (opts.shouldStop && opts.shouldStop()) { log('Arret demande, fin du lot.'); break; }
       const client = clients[i];
       const clog = (m) => { const line = `[${client.nom}] ${m}`; console.log(line); opts.onLog?.(line); };
+
+      // Avant chaque client : si la session a expire (ou apres une serie d'echecs),
+      // on se reconnecte au compte cabinet pour ne pas rater tout le reste du lot.
+      if (!(await sessionVivante(page)) || echecsConsecutifs >= 3) {
+        log(echecsConsecutifs >= 3 ? 'Plusieurs echecs d\'affilee -> reconnexion du compte cabinet...' : 'Session cabinet expiree -> reconnexion...');
+        try {
+          await connecterCabinet(page, cabinet, navTimeout, log);
+          await page.waitForTimeout(1500);
+          echecsConsecutifs = 0;
+        } catch (e) {
+          log(`Echec de la reconnexion (${e.message}). Arret du lot.`);
+          break;
+        }
+      }
+
       clog(`(${i + 1}/${clients.length})`);
       const r = await recupererAppelsClient(context, page, client, { baseFolder: opts.baseFolder, navTimeout, log: clog });
+      echecsConsecutifs = r.ok ? 0 : echecsConsecutifs + 1;
       resume.traites++;
       if (r.ok) { if (r.docs && r.docs.length) { resume.avecDocs++; resume.docs += r.docs.length; } }
       else resume.echecs++;
