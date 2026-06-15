@@ -24,7 +24,7 @@ if %NODE_MAJOR% LSS 22 (
   exit /b 1
 )
 
-rem --- Premier lancement : installer les composants (dependances + navigateur) ---
+rem --- Premier lancement : installer les composants (visible, car long) ---
 if not exist "node_modules" (
   echo Premiere utilisation detectee.
   echo Installation des composants en cours ^(cela peut prendre quelques minutes^)...
@@ -37,22 +37,10 @@ if not exist "node_modules" (
     pause
     exit /b 1
   )
-  echo.
-  echo Installation terminee.
-  echo.
 )
 
-rem --- Mise a jour automatique depuis GitHub (avant de demarrer le serveur) ---
-echo Verification des mises a jour...
-node maj.js
-
-rem --- Demarrage du serveur SANS fenetre visible ---
-echo.
-echo Lancement de l'application ^(le serveur tourne en arriere-plan, sans fenetre^).
-echo Le navigateur va s'ouvrir sur http://localhost:3000
-echo Pour arreter : bouton "Quitter" dans la page, ou double-clic sur Quitter.bat
+rem --- Mise a jour auto + serveur + navigateur, le tout SANS aucune fenetre ---
 start "" wscript.exe "%~dp0_serveur-cache.vbs"
 
-rem Cette fenetre se ferme : l'application reste active en arriere-plan.
-timeout /t 3 >nul
+rem Cette fenetre se ferme aussitot. L'application tourne en arriere-plan.
 exit

@@ -60,7 +60,7 @@ async function main() {
     mkdirSync(tmp, { recursive: true });
     execFileSync('powershell.exe',
       ['-NoProfile', '-NonInteractive', '-Command', `Expand-Archive -LiteralPath '${zip}' -DestinationPath '${tmp}' -Force`],
-      { stdio: 'ignore' });
+      { stdio: 'ignore', windowsHide: true });
 
     const racine = resolve(tmp, `urssaf-scraper-${BRANCHE}`);
     if (!existsSync(racine)) throw new Error('archive inattendue (dossier racine absent)');
@@ -72,7 +72,7 @@ async function main() {
 
     console.log('Fichiers mis a jour. Verification des dependances...');
     execFileSync(process.platform === 'win32' ? 'npm.cmd' : 'npm',
-      ['install', '--no-audit', '--no-fund'], { cwd: __dirname, stdio: 'inherit' });
+      ['install', '--no-audit', '--no-fund'], { cwd: __dirname, stdio: 'ignore', windowsHide: true });
 
     console.log(`Mise a jour vers la v${vDistante} terminee.`);
   } catch (e) {
