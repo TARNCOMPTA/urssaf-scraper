@@ -7,11 +7,11 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 sh.CurrentDirectory = fso.GetParentFolderName(WScript.ScriptFullName)
 
 ' Arrete proprement une instance precedente (si l'appli tournait deja), pour que
-' relancer "Demarrer" recharge bien la derniere version (sinon le port 3000 est
+' relancer "Demarrer" recharge bien la derniere version (sinon le port 3001 est
 ' deja pris et le nouveau serveur ne peut pas demarrer).
 On Error Resume Next
 Set http = CreateObject("MSXML2.XMLHTTP")
-http.open "POST", "http://localhost:3000/api/quit", False
+http.open "POST", "http://localhost:3001/api/quit", False
 http.send
 On Error GoTo 0
 WScript.Sleep 1500
@@ -24,4 +24,4 @@ sh.Run "node --disable-warning=ExperimentalWarning server.js", 0, False
 
 ' Laisse le serveur demarrer, puis ouvre le navigateur (seule fenetre visible).
 WScript.Sleep 3000
-sh.Run "http://localhost:3000", 1, False
+sh.Run "http://localhost:3001", 1, False

@@ -17,7 +17,7 @@ Le robot se connecte, recherche le client par SIRET, ouvre sa **messagerie**, et
 2. **Au premier lancement uniquement**, les composants s'installent automatiquement
    (dépendances + navigateur Chromium) : cela prend quelques minutes. Les fois suivantes,
    le démarrage est immédiat.
-3. Le navigateur s'ouvre sur http://localhost:3000 (sinon, ouvrir cette adresse).
+3. Le navigateur s'ouvre sur http://localhost:3001 (sinon, ouvrir cette adresse).
 4. **Plus de fenêtre noire à garder ouverte** : le serveur tourne en arrière-plan, sans fenêtre.
    La petite fenêtre de démarrage se ferme toute seule après le lancement.
 
