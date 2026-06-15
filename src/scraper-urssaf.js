@@ -189,10 +189,31 @@ async function recupererAppelsClient(context, page, client, { baseFolder, navTim
       .catch(() => log('Avertissement : liste des messages non detectee (delai).'));
     await msg.waitForTimeout(1500);
 
-    // 4. Appels de cotisations -> PDF (parcourt toutes les pages de la messagerie)
-    const eids = await msg.evaluate(async () => {
-      const out = new Set();
-      for (let p = 1; p <= 30; p++) {
+    // 4. Appels de cotisations -> PDF.
+    // On lit la liste des messages de DEUX manieres complementaires :
+    //   a) le DOM deja affiche a l'ecran (fiable : la page est chargee),
+    //   b) la pagination via RicoFil.action (pour aller au-dela de la 1ere page).
+    // Le libelle teste est celui de la LIGNE entiere (<tr>), pas seulement de
+    // l'element portant le onclick (souvent une icone sans texte).
+    const detection = await msg.evaluate(async () => {
+      const APPEL = /APPEL\s+DE\s+COTISATION/i;
+
+      // Extrait les lignes {id, texte} d'un Document (DOM vivant ou page fetchee).
+      function extraire(racine) {
+        const lignes = [];
+        for (const el of racine.querySelectorAll('[onclick*="apercuMsg"]')) {
+          const m = (el.getAttribute('onclick') || '').match(/apercuMsg\('?(\d+)'?\)/);
+          if (!m) continue;
+          const ligne = el.closest('tr') || el.parentElement || el;
+          const texte = (ligne.textContent || '').replace(/\s+/g, ' ').trim();
+          lignes.push({ id: m[1], texte });
+        }
+        return lignes;
+      }
+
+      let lignes = extraire(document); // a) DOM vivant
+
+      for (let p = 1; p <= 30; p++) { // b) pagination
         let html;
         try {
           const r = await fetch(`/messagerie/RicoFil.action?pageEnCours=${p}&timestamp=${Date.now()}`, { credentials: 'include' });
@@ -200,16 +221,31 @@ async function recupererAppelsClient(context, page, client, { baseFolder, navTim
         } catch { break; }
         if (!html || !/apercuMsg/i.test(html)) break;
         const doc = new DOMParser().parseFromString(html, 'text/html');
-        const rows = doc.querySelectorAll('[onclick*="apercuMsg"]');
-        if (!rows.length) break;
-        for (const el of rows) {
-          const m = (el.getAttribute('onclick') || '').match(/apercuMsg\('?(\d+)'?\)/);
-          if (m && /APPEL DE COTISATION/i.test(el.textContent || '')) out.add(m[1]);
-        }
+        const l = extraire(doc);
+        if (!l.length) break;
+        lignes = lignes.concat(l);
       }
-      return [...out];
+
+      // Deduplication par identifiant de message.
+      const vus = new Set();
+      const uniques = [];
+      for (const li of lignes) { if (!vus.has(li.id)) { vus.add(li.id); uniques.push(li); } }
+
+      return {
+        appels: uniques.filter((li) => APPEL.test(li.texte)).map((li) => li.id),
+        total: uniques.length,
+        echantillon: uniques.slice(0, 12).map((li) => li.texte.slice(0, 90)),
+      };
     });
+
+    const eids = [...new Set(detection.appels)];
     log(`${eids.length} appel(s) de cotisations detecte(s).`);
+    if (eids.length === 0 && detection.total > 0) {
+      log(`Diagnostic : ${detection.total} message(s) dans la messagerie, aucun libelle « APPEL DE COTISATION ».`);
+      for (const t of detection.echantillon) log(`   • « ${t} »`);
+    } else if (eids.length === 0) {
+      log('Diagnostic : aucun message lu dans la messagerie (liste vide ou non chargee).');
+    }
 
     let existants = 0;
     for (const eid of eids) {
