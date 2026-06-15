@@ -176,7 +176,9 @@ export function importClients(rows, cabinetId = null) {
 
 // ---- Documents & runs -----------------------------------------------------
 export function addDocument(client_id, { libelle, fichier, eventid }) {
-  db.prepare('INSERT OR IGNORE INTO documents (client_id, libelle, fichier, eventid) VALUES (?, ?, ?, ?)')
+  // Met a jour le libelle/chemin si le document (meme eventid) est re-traite.
+  db.prepare(`INSERT INTO documents (client_id, libelle, fichier, eventid) VALUES (?, ?, ?, ?)
+              ON CONFLICT(client_id, eventid) DO UPDATE SET libelle = excluded.libelle, fichier = excluded.fichier`)
     .run(client_id, libelle ?? null, fichier, eventid ?? null);
 }
 export function getDocumentByEventid(client_id, eventid) {

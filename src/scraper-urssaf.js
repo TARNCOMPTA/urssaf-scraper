@@ -25,15 +25,20 @@ const TDBEC_ACCUEIL = 'https://tdbec.urssaf.fr/accueil';
 function sanitize(name) {
   return String(name).replace(/[^\w.\- ]+/g, '_').replace(/\s+/g, '_').trim().slice(0, 120);
 }
-// Nom de fichier lisible pour un document : garde les accents, retire seulement
-// les caracteres interdits par Windows, et suffixe par l'identifiant du message.
-function nomFichierDoc(libelle, eid) {
+// Nom de fichier lisible : garde les accents et les tirets (pour les dates),
+// retire seulement les caracteres interdits par Windows.
+function nomFichierDoc(libelle) {
   const base = String(libelle || 'document')
-    .replace(/[<>:"/\\|?* -]+/g, ' ')
+    .replace(/[<>:"/\\|?*]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, 90) || 'document';
-  return `${base}_${eid}.pdf`;
+    .slice(0, 130) || 'document';
+  return `${base}.pdf`;
+}
+// Convertit une date URSSAF "JJ/MM/AAAA" en "AAAA-MM-JJ" (triable). Sinon "".
+function dateIso(d) {
+  const m = String(d || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : '';
 }
 function addRunSafe(clientId, run) {
   try { addRun(clientId, run); } catch (e) { console.warn(`(historique non enregistre: ${e.message})`); }
@@ -205,27 +210,33 @@ async function recupererAppelsClient(context, page, client, { baseFolder, navTim
     // chaque message (apercuMsg soumet un formulaire et recharge la page).
     // On lit le DOM affiche + la pagination RicoFil.action.
     const docsTrouves = await msg.evaluate(async () => {
-      // Extrait les pieces jointes {href, eid, libelle} d'un Document.
+      // Extrait, par message, {href, eid, objet, date}. Chaque message est un
+      // bloc « div.row.urssaf-message » porteur de l'onclick apercuMsg, contenant
+      // l'objet (.col-lg-5 / .col-md-6), la date (.urssaf_date_echange) et le
+      // lien de la piece jointe (a[href*=showAttachement]).
+      function texte(el) { return el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''; }
       function extraire(racine) {
-        // Libelle de chaque message, indexe par identifiant (EVENTID).
-        const libelleParId = {};
-        for (const el of racine.querySelectorAll('[onclick*="apercuMsg"]')) {
-          const m = (el.getAttribute('onclick') || '').match(/apercuMsg\('?(\d+)'?\)/);
-          if (!m) continue;
-          const ligne = el.closest('tr') || el.parentElement || el;
-          libelleParId[m[1]] = (ligne.textContent || '').replace(/\s+/g, ' ').trim();
-        }
-        // Liens de pieces jointes (le vrai document a telecharger).
-        const items = [];
+        // 1. Liens de pieces jointes groupes par EVENTID (resout l'association
+        //    objet/date <-> document de facon fiable).
+        const liensParId = {};
         for (const a of racine.querySelectorAll('a[href*="showAttachement"]')) {
           let href = a.getAttribute('href') || a.href || '';
           if (!href) continue;
           if (!/^https?:/i.test(href)) href = href.startsWith('/') ? location.origin + href : location.origin + '/messagerie/' + href;
-          const eid = (href.match(/[?&]EVENTID=([^&]+)/i) || href.match(/[?&]COURRIERID=([^&]+)/i) || [])[1] || '';
-          const ligne = a.closest('tr');
-          let libelle = ligne ? (ligne.textContent || '').replace(/\s+/g, ' ').trim() : '';
-          if ((!libelle || !/[a-z]/i.test(libelle)) && eid && libelleParId[eid]) libelle = libelleParId[eid];
-          items.push({ href, eid, libelle });
+          const id = (href.match(/[?&]EVENTID=([^&]+)/i) || href.match(/[?&]COURRIERID=([^&]+)/i) || [])[1] || '';
+          (liensParId[id] = liensParId[id] || []).push(href);
+        }
+        // 2. Messages : objet + date, associes a leurs liens par identifiant.
+        const items = [];
+        for (const el of racine.querySelectorAll('[onclick*="apercuMsg"]')) {
+          const m = (el.getAttribute('onclick') || '').match(/apercuMsg\('?(\d+)'?\)/);
+          if (!m) continue;
+          const eid = m[1];
+          const hrefs = liensParId[eid];
+          if (!hrefs || !hrefs.length) continue; // message sans piece jointe -> ignore
+          const objet = texte(el.querySelector('.col-lg-5') || el.querySelector('.col-md-6'));
+          const date = texte(el.querySelector('.urssaf_date_echange'));
+          for (const href of hrefs) items.push({ href, eid, objet, date });
         }
         return items;
       }
@@ -255,10 +266,12 @@ async function recupererAppelsClient(context, page, client, { baseFolder, navTim
 
     let existants = 0;
     const utilises = new Set();
-    for (const { href, eid, libelle } of docsTrouves) {
+    for (const { href, eid, objet, date } of docsTrouves) {
       // Cle unique du document : DOCUMENTID si present, sinon EVENTID, sinon le lien.
       const docId = (href.match(/[?&]DOCUMENTID=([^&]+)/i) || [])[1] || eid || href;
-      const libelleDoc = (libelle || 'Document URSSAF').slice(0, 200);
+      // Nom : « AAAA-MM-JJ Objet » (date en premier, comme l'URSSAF).
+      const nomBase = [dateIso(date), objet || 'Document URSSAF'].filter(Boolean).join(' ');
+      const libelleDoc = [date, objet].filter(Boolean).join(' — ').slice(0, 200) || 'Document URSSAF';
       try {
         // Economie : deja recupere ? (cle = identifiant unique du document)
         const deja = getDocumentByEventid(client.id, docId);
@@ -268,9 +281,9 @@ async function recupererAppelsClient(context, page, client, { baseFolder, navTim
           continue;
         }
         // Nom de fichier lisible, unique dans le dossier.
-        let dest = resolve(clientDir, nomFichierDoc(libelle, eid || docId));
+        let dest = resolve(clientDir, nomFichierDoc(nomBase));
         if (utilises.has(dest.toLowerCase()) || existsSync(dest)) {
-          const base = nomFichierDoc(libelle, eid || docId).replace(/\.pdf$/i, '');
+          const base = nomFichierDoc(nomBase).replace(/\.pdf$/i, '');
           let i = 2;
           do { dest = resolve(clientDir, `${base} (${i++}).pdf`); } while ((utilises.has(dest.toLowerCase()) || existsSync(dest)) && i < 100);
         }
