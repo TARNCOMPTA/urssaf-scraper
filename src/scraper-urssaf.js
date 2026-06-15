@@ -200,25 +200,37 @@ async function recupererAppelsClient(context, page, client, { baseFolder, navTim
     await msg.waitForTimeout(1500);
 
     // 4. Tous les documents de la messagerie -> PDF.
-    // On lit la liste des messages de DEUX manieres complementaires :
-    //   a) le DOM deja affiche a l'ecran (fiable : la page est chargee),
-    //   b) la pagination via RicoFil.action (pour aller au-dela de la 1ere page).
-    // On ne filtre PAS sur un libelle : on recupere la piece jointe de chaque message.
-    const messages = await msg.evaluate(async () => {
-      // Extrait les messages {id, libelle} d'un Document (DOM vivant ou page fetchee).
+    // Les liens de pieces jointes (showAttachement.action) sont DEJA presents
+    // dans la liste des messages : on les recupere directement, sans ouvrir
+    // chaque message (apercuMsg soumet un formulaire et recharge la page).
+    // On lit le DOM affiche + la pagination RicoFil.action.
+    const docsTrouves = await msg.evaluate(async () => {
+      // Extrait les pieces jointes {href, eid, libelle} d'un Document.
       function extraire(racine) {
-        const lignes = [];
+        // Libelle de chaque message, indexe par identifiant (EVENTID).
+        const libelleParId = {};
         for (const el of racine.querySelectorAll('[onclick*="apercuMsg"]')) {
           const m = (el.getAttribute('onclick') || '').match(/apercuMsg\('?(\d+)'?\)/);
           if (!m) continue;
           const ligne = el.closest('tr') || el.parentElement || el;
-          const libelle = (ligne.textContent || '').replace(/\s+/g, ' ').trim();
-          lignes.push({ id: m[1], libelle });
+          libelleParId[m[1]] = (ligne.textContent || '').replace(/\s+/g, ' ').trim();
         }
-        return lignes;
+        // Liens de pieces jointes (le vrai document a telecharger).
+        const items = [];
+        for (const a of racine.querySelectorAll('a[href*="showAttachement"]')) {
+          let href = a.getAttribute('href') || a.href || '';
+          if (!href) continue;
+          if (!/^https?:/i.test(href)) href = href.startsWith('/') ? location.origin + href : location.origin + '/messagerie/' + href;
+          const eid = (href.match(/[?&]EVENTID=([^&]+)/i) || href.match(/[?&]COURRIERID=([^&]+)/i) || [])[1] || '';
+          const ligne = a.closest('tr');
+          let libelle = ligne ? (ligne.textContent || '').replace(/\s+/g, ' ').trim() : '';
+          if ((!libelle || !/[a-z]/i.test(libelle)) && eid && libelleParId[eid]) libelle = libelleParId[eid];
+          items.push({ href, eid, libelle });
+        }
+        return items;
       }
 
-      let lignes = extraire(document); // a) DOM vivant
+      let items = extraire(document); // a) DOM affiche
 
       for (let p = 1; p <= 30; p++) { // b) pagination
         let html;
@@ -226,122 +238,63 @@ async function recupererAppelsClient(context, page, client, { baseFolder, navTim
           const r = await fetch(`/messagerie/RicoFil.action?pageEnCours=${p}&timestamp=${Date.now()}`, { credentials: 'include' });
           html = await r.text();
         } catch { break; }
-        if (!html || !/apercuMsg/i.test(html)) break;
+        if (!html || !/apercuMsg|showAttachement/i.test(html)) break;
         const doc = new DOMParser().parseFromString(html, 'text/html');
-        const l = extraire(doc);
-        if (!l.length) break;
-        lignes = lignes.concat(l);
+        items = items.concat(extraire(doc));
+        if (!/apercuMsg/i.test(html)) break;
       }
 
-      // Deduplication par identifiant de message.
+      // Deduplication par lien (chaque piece jointe une seule fois).
       const vus = new Set();
-      const uniques = [];
-      for (const li of lignes) { if (!vus.has(li.id)) { vus.add(li.id); uniques.push(li); } }
-      return uniques;
+      const out = [];
+      for (const it of items) { if (it.href && !vus.has(it.href)) { vus.add(it.href); out.push(it); } }
+      return out;
     });
 
-    log(`${messages.length} message(s) dans la messagerie.`);
-
-    // --- Diagnostic persistant (mise au point du telechargement) ------------
-    // Ecrit la structure de la messagerie + le code reel de apercuMsg + le HTML
-    // dans le dossier du client, pour pouvoir corriger sans acces au compte.
-    try {
-      const diag = { url: msg.url(), genere_le: new Date().toISOString(), contextes: [] };
-      let cibleHtml = msg;
-      for (const fr of [msg, ...msg.frames()]) {
-        const info = await fr.evaluate(() => ({
-          url: location.href,
-          apercuMsg: typeof window.apercuMsg === 'function' ? window.apercuMsg.toString().slice(0, 2000) : null,
-          nbElementsApercu: document.querySelectorAll('[onclick*="apercuMsg"]').length,
-          nbLiensAttach: document.querySelectorAll('a[href*="showAttachement"]').length,
-          exempleOnclick: (document.querySelector('[onclick*="apercuMsg"]')?.getAttribute('onclick') || null),
-          exempleAttachHref: (document.querySelector('a[href*="showAttachement"]')?.href || null),
-        })).catch(() => null);
-        if (info) {
-          diag.contextes.push(info);
-          if (info.nbElementsApercu > 0 && cibleHtml === msg && fr !== msg) cibleHtml = fr;
-        }
-      }
-      writeFileSync(resolve(clientDir, '_diagnostic.txt'), JSON.stringify(diag, null, 2), 'utf8');
-      const html = await cibleHtml.content().catch(() => '');
-      if (html) writeFileSync(resolve(clientDir, '_diagnostic_messagerie.html'), html, 'utf8');
-      log(`Diagnostic ecrit dans ${clientDir} (_diagnostic.txt + _diagnostic_messagerie.html).`);
-    } catch (e) { log(`(diagnostic non ecrit : ${e.message})`); }
-
-    // La messagerie (et la fonction apercuMsg) est souvent dans un CADRE (iframe) :
-    // on cherche le contexte (page ou frame) qui expose apercuMsg.
-    let ctxMsg = msg;
-    let apercuOk = await msg.evaluate(() => typeof window.apercuMsg === 'function').catch(() => false);
-    if (!apercuOk) {
-      for (const fr of msg.frames()) {
-        if (await fr.evaluate(() => typeof window.apercuMsg === 'function').catch(() => false)) {
-          ctxMsg = fr; apercuOk = true; break;
-        }
-      }
-    }
-    if (apercuOk && ctxMsg !== msg) log(`Messagerie dans un cadre : ${ctxMsg.url()}`);
-    if (!apercuOk) {
-      const frames = msg.frames().map((f) => f.url()).filter(Boolean);
-      log(`Diagnostic : fonction d'ouverture des messages (apercuMsg) introuvable. Cadres : ${frames.join(' | ') || '(aucun)'}`);
-    }
-
-    // Cherche le lien de la piece jointe (showAttachement.action) pour un message,
-    // en scrutant le contexte messagerie ET tous les cadres de la page.
-    async function trouverLienPJ(eid) {
-      const fin = Date.now() + 20000;
-      while (Date.now() < fin) {
-        for (const fr of [ctxMsg, msg, ...msg.frames()]) {
-          const href = await fr.evaluate((id) => {
-            const liens = [...document.querySelectorAll('a')].filter((x) => /showAttachement\.action/i.test(x.href || ''));
-            if (!liens.length) return null;
-            const exact = liens.find((x) => (x.href || '').toUpperCase().includes('EVENTID=' + String(id).toUpperCase()) || (x.href || '').includes(String(id)));
-            return (exact || liens[0]).href;
-          }, eid).catch(() => null);
-          if (href) return href;
-        }
-        await msg.waitForTimeout(500);
-      }
-      return null;
-    }
+    log(`${docsTrouves.length} document(s) detecte(s) dans la messagerie.`);
 
     let existants = 0;
-    let sansPj = 0;
-    for (const { id: eid, libelle } of messages) {
-      const nomFichier = nomFichierDoc(libelle, eid);
+    const utilises = new Set();
+    for (const { href, eid, libelle } of docsTrouves) {
+      // Cle unique du document : DOCUMENTID si present, sinon EVENTID, sinon le lien.
+      const docId = (href.match(/[?&]DOCUMENTID=([^&]+)/i) || [])[1] || eid || href;
       const libelleDoc = (libelle || 'Document URSSAF').slice(0, 200);
       try {
-        const dest = resolve(clientDir, nomFichier);
-        // Economie : si le fichier est deja present (ou deja enregistre), on ne re-telecharge pas.
-        const dejaEnBase = getDocumentByEventid(client.id, eid);
-        if (existsSync(dest) || (dejaEnBase && dejaEnBase.fichier && existsSync(dejaEnBase.fichier))) {
+        // Economie : deja recupere ? (cle = identifiant unique du document)
+        const deja = getDocumentByEventid(client.id, docId);
+        if (deja && deja.fichier && existsSync(deja.fichier)) {
           existants++;
-          // S'assure que la base reference bien le fichier present.
-          try { addDocument(client.id, { libelle: libelleDoc, fichier: existsSync(dest) ? dest : dejaEnBase.fichier, eventid: eid }); } catch {}
-          log(`Deja present : ${nomFichier} (ignore)`);
+          log(`Deja present : ${deja.fichier.split(/[\\/]/).pop()} (ignore)`);
           continue;
         }
-        if (apercuOk) await ctxMsg.evaluate((id) => window.apercuMsg(id), eid);
-        const href = await trouverLienPJ(eid);
-        if (!href) { sansPj++; log(`(message ${eid} : pas de piece jointe PDF)`); continue; }
+        // Nom de fichier lisible, unique dans le dossier.
+        let dest = resolve(clientDir, nomFichierDoc(libelle, eid || docId));
+        if (utilises.has(dest.toLowerCase()) || existsSync(dest)) {
+          const base = nomFichierDoc(libelle, eid || docId).replace(/\.pdf$/i, '');
+          let i = 2;
+          do { dest = resolve(clientDir, `${base} (${i++}).pdf`); } while ((utilises.has(dest.toLowerCase()) || existsSync(dest)) && i < 100);
+        }
+        utilises.add(dest.toLowerCase());
+
         const resp = await msg.request.get(href, { timeout: navTimeout });
         if (!resp.ok()) throw new Error(`HTTP ${resp.status()}`);
         const buf = await resp.body();
         if (buf.length < 100 || buf.subarray(0, 4).toString() !== '%PDF') throw new Error('reponse non-PDF');
         writeFileSync(dest, buf);
-        try { addDocument(client.id, { libelle: libelleDoc, fichier: dest, eventid: eid }); } catch (e) { log(`(doc non enregistre: ${e.message})`); }
+        try { addDocument(client.id, { libelle: libelleDoc, fichier: dest, eventid: docId }); } catch (e) { log(`(doc non enregistre: ${e.message})`); }
         docs.push({ libelle: libelleDoc, fichier: dest });
-        log(`OK : ${nomFichier} (${Math.round(buf.length / 1024)} Ko)`);
+        log(`OK : ${dest.split(/[\\/]/).pop()} (${Math.round(buf.length / 1024)} Ko)`);
       } catch (e) {
-        log(`Echec message ${eid} : ${e.message}`);
+        log(`Echec document ${eid || docId} : ${e.message}`);
       }
     }
 
-    const total = messages.length;
+    const total = docsTrouves.length;
     let message;
-    if (total === 0) { log('Aucun message dans la messagerie de ce client.'); message = 'Aucun message dans la messagerie'; }
-    else message = `${docs.length} nouveau(x) document(s), ${existants} deja present(s), ${sansPj} sans PJ sur ${total} message(s)`;
+    if (total === 0) { log('Aucun document (piece jointe) dans la messagerie de ce client.'); message = 'Aucun document disponible'; }
+    else message = `${docs.length} nouveau(x) document(s), ${existants} deja present(s) sur ${total} piece(s) jointe(s)`;
     addRunSafe(client.id, { statut: 'succes', message, nb_docs: docs.length });
-    log(`Termine : ${docs.length} nouveau(x), ${existants} deja present(s), ${sansPj} sans piece jointe.`);
+    log(`Termine : ${docs.length} nouveau(x), ${existants} deja present(s) sur ${total} document(s).`);
     return { ok: true, docs };
   } catch (err) {
     const shot = resolve(clientDir, `_debug_${Date.now()}.png`);
