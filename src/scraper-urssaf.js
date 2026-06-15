@@ -242,6 +242,32 @@ async function recupererAppelsClient(context, page, client, { baseFolder, navTim
 
     log(`${messages.length} message(s) dans la messagerie.`);
 
+    // --- Diagnostic persistant (mise au point du telechargement) ------------
+    // Ecrit la structure de la messagerie + le code reel de apercuMsg + le HTML
+    // dans le dossier du client, pour pouvoir corriger sans acces au compte.
+    try {
+      const diag = { url: msg.url(), genere_le: new Date().toISOString(), contextes: [] };
+      let cibleHtml = msg;
+      for (const fr of [msg, ...msg.frames()]) {
+        const info = await fr.evaluate(() => ({
+          url: location.href,
+          apercuMsg: typeof window.apercuMsg === 'function' ? window.apercuMsg.toString().slice(0, 2000) : null,
+          nbElementsApercu: document.querySelectorAll('[onclick*="apercuMsg"]').length,
+          nbLiensAttach: document.querySelectorAll('a[href*="showAttachement"]').length,
+          exempleOnclick: (document.querySelector('[onclick*="apercuMsg"]')?.getAttribute('onclick') || null),
+          exempleAttachHref: (document.querySelector('a[href*="showAttachement"]')?.href || null),
+        })).catch(() => null);
+        if (info) {
+          diag.contextes.push(info);
+          if (info.nbElementsApercu > 0 && cibleHtml === msg && fr !== msg) cibleHtml = fr;
+        }
+      }
+      writeFileSync(resolve(clientDir, '_diagnostic.txt'), JSON.stringify(diag, null, 2), 'utf8');
+      const html = await cibleHtml.content().catch(() => '');
+      if (html) writeFileSync(resolve(clientDir, '_diagnostic_messagerie.html'), html, 'utf8');
+      log(`Diagnostic ecrit dans ${clientDir} (_diagnostic.txt + _diagnostic_messagerie.html).`);
+    } catch (e) { log(`(diagnostic non ecrit : ${e.message})`); }
+
     // La messagerie (et la fonction apercuMsg) est souvent dans un CADRE (iframe) :
     // on cherche le contexte (page ou frame) qui expose apercuMsg.
     let ctxMsg = msg;
