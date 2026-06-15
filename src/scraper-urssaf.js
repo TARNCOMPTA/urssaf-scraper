@@ -242,6 +242,42 @@ async function recupererAppelsClient(context, page, client, { baseFolder, navTim
 
     log(`${messages.length} message(s) dans la messagerie.`);
 
+    // La messagerie (et la fonction apercuMsg) est souvent dans un CADRE (iframe) :
+    // on cherche le contexte (page ou frame) qui expose apercuMsg.
+    let ctxMsg = msg;
+    let apercuOk = await msg.evaluate(() => typeof window.apercuMsg === 'function').catch(() => false);
+    if (!apercuOk) {
+      for (const fr of msg.frames()) {
+        if (await fr.evaluate(() => typeof window.apercuMsg === 'function').catch(() => false)) {
+          ctxMsg = fr; apercuOk = true; break;
+        }
+      }
+    }
+    if (apercuOk && ctxMsg !== msg) log(`Messagerie dans un cadre : ${ctxMsg.url()}`);
+    if (!apercuOk) {
+      const frames = msg.frames().map((f) => f.url()).filter(Boolean);
+      log(`Diagnostic : fonction d'ouverture des messages (apercuMsg) introuvable. Cadres : ${frames.join(' | ') || '(aucun)'}`);
+    }
+
+    // Cherche le lien de la piece jointe (showAttachement.action) pour un message,
+    // en scrutant le contexte messagerie ET tous les cadres de la page.
+    async function trouverLienPJ(eid) {
+      const fin = Date.now() + 20000;
+      while (Date.now() < fin) {
+        for (const fr of [ctxMsg, msg, ...msg.frames()]) {
+          const href = await fr.evaluate((id) => {
+            const liens = [...document.querySelectorAll('a')].filter((x) => /showAttachement\.action/i.test(x.href || ''));
+            if (!liens.length) return null;
+            const exact = liens.find((x) => (x.href || '').toUpperCase().includes('EVENTID=' + String(id).toUpperCase()) || (x.href || '').includes(String(id)));
+            return (exact || liens[0]).href;
+          }, eid).catch(() => null);
+          if (href) return href;
+        }
+        await msg.waitForTimeout(500);
+      }
+      return null;
+    }
+
     let existants = 0;
     let sansPj = 0;
     for (const { id: eid, libelle } of messages) {
@@ -258,11 +294,8 @@ async function recupererAppelsClient(context, page, client, { baseFolder, navTim
           log(`Deja present : ${nomFichier} (ignore)`);
           continue;
         }
-        await msg.evaluate((id) => window.apercuMsg(id), eid);
-        const href = await msg.waitForFunction((id) => {
-          const a = [...document.querySelectorAll('a')].find((x) => /showAttachement\.action/i.test(x.href) && x.href.includes('EVENTID=' + id));
-          return a ? a.href : null;
-        }, eid, { timeout: 20000 }).then((h) => h.jsonValue()).catch(() => null);
+        if (apercuOk) await ctxMsg.evaluate((id) => window.apercuMsg(id), eid);
+        const href = await trouverLienPJ(eid);
         if (!href) { sansPj++; log(`(message ${eid} : pas de piece jointe PDF)`); continue; }
         const resp = await msg.request.get(href, { timeout: navTimeout });
         if (!resp.ok()) throw new Error(`HTTP ${resp.status()}`);
