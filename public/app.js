@@ -513,6 +513,18 @@ function activerOnglet(nom) {
 let documentsAll = [];
 let documentsPage = 1;
 
+// Date DU DOCUMENT (celle de l'URSSAF), pas la date de recuperation.
+// On la lit dans le nom de fichier (« AAAA-MM-JJ … ») ou dans le libelle
+// (« JJ/MM/AAAA … »). Renvoie une cle triable + un affichage JJ/MM/AAAA.
+function infosDateDoc(d) {
+  const nom = (d.fichier || '').split(/[\\/]/).pop() || '';
+  let m = nom.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return { tri: m[1] + m[2] + m[3], affiche: `${m[3]}/${m[2]}/${m[1]}` };
+  m = (d.libelle || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  if (m) return { tri: m[3] + m[2] + m[1], affiche: `${m[1]}/${m[2]}/${m[3]}` };
+  return { tri: '00000000', affiche: d.recupere_le ? new Date(d.recupere_le + 'Z').toLocaleDateString('fr-FR') : '' };
+}
+
 function documentsFiltres() {
   const q = ($('#documents-recherche').value || '').toLowerCase().trim();
   if (!q) return documentsAll;
@@ -535,6 +547,9 @@ function renderDocuments() {
   cont.innerHTML = '';
   for (const d of slice) {
     const nom = (d.fichier || '').split(/[\\/]/).pop();
+    const info = infosDateDoc(d);
+    // Titre = libelle sans la date en tete (elle est affichee a part).
+    let titre = (d.libelle || nom).replace(/^\s*\d{2}\/\d{2}\/\d{4}\s*[—-]\s*/, '');
     const a = document.createElement('a');
     a.className = 'doc-row';
     a.href = `/api/documents/file?path=${encodeURIComponent(d.fichier)}`;
@@ -542,9 +557,9 @@ function renderDocuments() {
     a.innerHTML = `
       <span class="doc-pdf">PDF</span>
       <div class="doc-corps">
-        <div class="doc-nom">${esc(d.libelle || nom)}</div>
+        <div class="doc-nom">${esc(titre)}</div>
         <div class="doc-meta"><span class="doc-client">${esc(d.client_nom || '—')}</span>
-          <span class="doc-date">${d.recupere_le ? new Date(d.recupere_le + 'Z').toLocaleDateString('fr-FR') : ''}</span></div>
+          <span class="doc-date" title="Date du document">${esc(info.affiche)}</span></div>
       </div>
       <span class="doc-ouvrir">Ouvrir ↗</span>`;
     cont.appendChild(a);
@@ -553,8 +568,12 @@ function renderDocuments() {
 }
 
 async function chargerDocuments() {
-  try { documentsAll = await api('/api/documents'); renderDocuments(); }
-  catch (err) { toast(err.message, 'err'); }
+  try {
+    documentsAll = await api('/api/documents');
+    // Tri par date DU DOCUMENT, du plus recent au plus ancien.
+    documentsAll.sort((a, b) => infosDateDoc(b).tri.localeCompare(infosDateDoc(a).tri));
+    renderDocuments();
+  } catch (err) { toast(err.message, 'err'); }
 }
 $('#documents-recherche').addEventListener('input', () => { documentsPage = 1; renderDocuments(); });
 $('#documents-taille').addEventListener('change', () => { documentsPage = 1; renderDocuments(); });
