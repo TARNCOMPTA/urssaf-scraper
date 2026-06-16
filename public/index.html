@@ -6,8 +6,8 @@
   <title>URSSAF — Documents</title>
   <script>
     (function () {
-      var t = localStorage.getItem('theme');
-      if (!t) t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      // Theme sombre (noir) par defaut ; l'utilisateur peut repasser en clair.
+      var t = localStorage.getItem('theme') || 'dark';
       document.documentElement.setAttribute('data-theme', t);
     })();
   </script>
