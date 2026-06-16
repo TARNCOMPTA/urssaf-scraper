@@ -1,6 +1,6 @@
 {
   "name": "urssaf-scraper",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "private": true,
   "type": "module",
   "description": "Récupération des appels de cotisations URSSAF (compte cabinet tiers déclarant, par SIRET)",

@@ -271,6 +271,38 @@ async function recupererAppelsClient(context, page, client, { baseFolder, navTim
 
     log(`${docsTrouves.length} document(s) detecte(s) dans la messagerie.`);
 
+    // Diagnostic : si 0 document, on dump la structure de la messagerie pour
+    // comprendre les cas particuliers (praticiens PAMC : infirmiers, osteo...).
+    if (docsTrouves.length === 0) {
+      try {
+        const diag = { url: msg.url(), genere_le: new Date().toISOString(), contextes: [] };
+        let cibleHtml = msg;
+        for (const fr of [msg, ...msg.frames()]) {
+          const info = await fr.evaluate(() => {
+            const ex = (sel, attr) => { const e = document.querySelector(sel); return e ? (attr === 'html' ? e.outerHTML.slice(0, 300) : (e.getAttribute(attr) || e.href || e.textContent || '').toString().slice(0, 200)) : null; };
+            return {
+              url: location.href,
+              nbApercu: document.querySelectorAll('[onclick*="apercuMsg"]').length,
+              nbShowAttach: document.querySelectorAll('a[href*="showAttachement"]').length,
+              nbLiensPdf: document.querySelectorAll('a[href*=".pdf"], a[href*="PDF"], a[href*="ocument"]').length,
+              nbOnclick: document.querySelectorAll('[onclick]').length,
+              exOnclick: ex('[onclick]', 'onclick'),
+              exLienPdf: ex('a[href*=".pdf"], a[href*="ocument"], a[href*="ttach"]', 'href'),
+              texteCourt: (document.body ? document.body.innerText.replace(/\s+/g, ' ').trim().slice(0, 400) : ''),
+            };
+          }).catch(() => null);
+          if (info) {
+            diag.contextes.push(info);
+            if ((info.nbApercu > 0 || info.nbShowAttach > 0) && cibleHtml === msg && fr !== msg) cibleHtml = fr;
+          }
+        }
+        writeFileSync(resolve(clientDir, '_diagnostic.txt'), JSON.stringify(diag, null, 2), 'utf8');
+        const html = await cibleHtml.content().catch(() => '');
+        if (html) writeFileSync(resolve(clientDir, '_diagnostic_messagerie.html'), html, 'utf8');
+        log(`Diagnostic (0 doc) ecrit dans ${clientDir}.`);
+      } catch (e) { log(`(diagnostic non ecrit : ${e.message})`); }
+    }
+
     let existants = 0;
     const utilises = new Set();
     for (const { href, eid, objet, date } of docsTrouves) {
