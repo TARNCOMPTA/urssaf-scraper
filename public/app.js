@@ -401,21 +401,42 @@ let runsAll = [];
 let runsPage = 1;
 const RUNS_TAILLE = 25;
 
+function tempsRelatif(iso) {
+  const d = new Date(iso + 'Z');
+  const s = Math.round((Date.now() - d.getTime()) / 1000);
+  if (s < 60) return 'à l\'instant';
+  if (s < 3600) return `il y a ${Math.floor(s / 60)} min`;
+  if (s < 86400) return `il y a ${Math.floor(s / 3600)} h`;
+  return d.toLocaleDateString('fr-FR');
+}
+
 function renderRuns() {
   const totalPages = Math.max(1, Math.ceil(runsAll.length / RUNS_TAILLE));
   if (runsPage > totalPages) runsPage = totalPages;
   const debut = (runsPage - 1) * RUNS_TAILLE;
   const slice = runsAll.slice(debut, debut + RUNS_TAILLE);
-  const tbody = $('#table-runs tbody');
-  tbody.innerHTML = '';
+  $('#runs-compte').textContent = runsAll.length ? `${runsAll.length}` : '';
+  $('#runs-vide').hidden = runsAll.length !== 0;
+
+  const liste = $('#runs-liste');
+  liste.innerHTML = '';
   for (const r of slice) {
-    const cls = r.statut === 'succes' ? 'ok' : 'err';
-    const lib = { succes: 'succès', echec: 'échec', echec_mdp: '🔒 mot de passe' }[r.statut] || r.statut;
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${new Date(r.lance_le + 'Z').toLocaleString('fr-FR')}</td>
-      <td>${esc(r.client_nom || '—')}</td><td><span class="badge ${cls}">${lib}</span></td>
-      <td>${r.nb_docs}</td><td>${esc(r.message || '')}</td>`;
-    tbody.appendChild(tr);
+    const etat = r.statut === 'succes' ? 'ok' : (r.statut === 'echec_mdp' ? 'mdp' : 'err');
+    const lib = { succes: 'Succès', echec: 'Échec', echec_mdp: 'Mot de passe' }[r.statut] || r.statut;
+    const ico = etat === 'ok' ? '✓' : (etat === 'mdp' ? '🔒' : '✕');
+    const row = document.createElement('div');
+    row.className = `run-row run-${etat}`;
+    row.innerHTML = `
+      <span class="run-ico">${ico}</span>
+      <div class="run-corps">
+        <div class="run-ligne1">
+          <span class="run-client">${esc(r.client_nom || '—')}</span>
+          <span class="run-temps" title="${new Date(r.lance_le + 'Z').toLocaleString('fr-FR')}">${tempsRelatif(r.lance_le)}</span>
+        </div>
+        <div class="run-message">${esc(r.message || lib)}</div>
+      </div>
+      <span class="run-docs" title="${r.nb_docs} document(s)">${r.nb_docs ? r.nb_docs + ' 📄' : ''}</span>`;
+    liste.appendChild(row);
   }
   renderPagination($('#runs-pagination'), runsPage, totalPages, (p) => { runsPage = p; renderRuns(); }, runsAll.length);
 }
@@ -479,3 +500,62 @@ async function chargerVersion() {
   try { const v = await api('/api/version'); if (v.version) $('#pied-version').textContent = 'v' + v.version; } catch { /* ignore */ }
 }
 chargerVersion();
+
+// ---- Onglets ---------------------------------------------------------------
+document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => activerOnglet(t.dataset.tab)));
+function activerOnglet(nom) {
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('actif', t.dataset.tab === nom));
+  document.querySelectorAll('.tab-panel').forEach((p) => p.classList.toggle('actif', p.id === 'tab-' + nom));
+  if (nom === 'documents') chargerDocuments();
+}
+
+// ---- Documents (tous clients) ---------------------------------------------
+let documentsAll = [];
+let documentsPage = 1;
+
+function documentsFiltres() {
+  const q = ($('#documents-recherche').value || '').toLowerCase().trim();
+  if (!q) return documentsAll;
+  return documentsAll.filter((d) => `${d.client_nom || ''} ${d.libelle || ''} ${d.fichier || ''}`.toLowerCase().includes(q));
+}
+
+function renderDocuments() {
+  const liste = documentsFiltres();
+  const taille = Number($('#documents-taille').value) || 100;
+  const totalPages = Math.max(1, Math.ceil(liste.length / taille));
+  if (documentsPage > totalPages) documentsPage = totalPages;
+  if (documentsPage < 1) documentsPage = 1;
+  const debut = (documentsPage - 1) * taille;
+  const slice = liste.slice(debut, debut + taille);
+
+  $('#documents-compte').textContent = liste.length === documentsAll.length ? `${documentsAll.length}` : `${liste.length} / ${documentsAll.length}`;
+  $('#documents-vide').hidden = documentsAll.length !== 0;
+
+  const cont = $('#documents-liste');
+  cont.innerHTML = '';
+  for (const d of slice) {
+    const nom = (d.fichier || '').split(/[\\/]/).pop();
+    const a = document.createElement('a');
+    a.className = 'doc-row';
+    a.href = `/api/documents/file?path=${encodeURIComponent(d.fichier)}`;
+    a.target = '_blank';
+    a.innerHTML = `
+      <span class="doc-pdf">PDF</span>
+      <div class="doc-corps">
+        <div class="doc-nom">${esc(d.libelle || nom)}</div>
+        <div class="doc-meta"><span class="doc-client">${esc(d.client_nom || '—')}</span>
+          <span class="doc-date">${d.recupere_le ? new Date(d.recupere_le + 'Z').toLocaleDateString('fr-FR') : ''}</span></div>
+      </div>
+      <span class="doc-ouvrir">Ouvrir ↗</span>`;
+    cont.appendChild(a);
+  }
+  renderPagination($('#documents-pagination'), documentsPage, totalPages, (p) => { documentsPage = p; renderDocuments(); }, liste.length);
+}
+
+async function chargerDocuments() {
+  try { documentsAll = await api('/api/documents'); renderDocuments(); }
+  catch (err) { toast(err.message, 'err'); }
+}
+$('#documents-recherche').addEventListener('input', () => { documentsPage = 1; renderDocuments(); });
+$('#documents-taille').addEventListener('change', () => { documentsPage = 1; renderDocuments(); });
+$('#documents-refresh').addEventListener('click', chargerDocuments);

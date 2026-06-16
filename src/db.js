@@ -187,6 +187,13 @@ export function getDocumentByEventid(client_id, eventid) {
 export function listDocuments(client_id) {
   return db.prepare('SELECT * FROM documents WHERE client_id = ? ORDER BY recupere_le DESC, id DESC').all(client_id);
 }
+// Tous les documents (tous clients confondus), avec le nom du client.
+export function listAllDocuments(limit = 5000) {
+  return db.prepare(`
+    SELECT d.*, c.nom AS client_nom FROM documents d LEFT JOIN clients c ON c.id = d.client_id
+    ORDER BY d.recupere_le DESC, d.id DESC LIMIT ?
+  `).all(limit);
+}
 export function addRun(client_id, { statut, message, nb_docs }) {
   db.prepare('INSERT INTO runs (client_id, statut, message, nb_docs) VALUES (?, ?, ?, ?)')
     .run(client_id, statut, message ?? null, nb_docs ?? 0);

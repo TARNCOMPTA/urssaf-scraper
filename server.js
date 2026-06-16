@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import {
   listClients, getClient, createClient, updateClient, deleteClient, getClientBySiret,
-  listClientsByCabinet, importClients, listDocuments, listRuns, getSetting, setSetting,
+  listClientsByCabinet, importClients, listDocuments, listAllDocuments, listRuns, getSetting, setSetting,
   listCabinets, getCabinetFull, createCabinet, updateCabinet, deleteCabinet, cabinetsConfigure,
 } from './src/db.js';
 import { scrapeClient, listerClients, scrapeAll } from './src/scraper-urssaf.js';
@@ -124,6 +124,7 @@ app.put('/api/clients/:id', (req, res) => {
 app.delete('/api/clients/:id', (req, res) => { deleteClient(Number(req.params.id)); res.json({ ok: true }); });
 
 app.get('/api/clients/:id/documents', (req, res) => res.json(listDocuments(Number(req.params.id))));
+app.get('/api/documents', (req, res) => res.json(listAllDocuments(5000)));
 
 app.get('/api/documents/file', (req, res) => {
   const f = String(req.query.path || '');
