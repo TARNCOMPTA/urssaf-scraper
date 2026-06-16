@@ -296,6 +296,20 @@ async function recupererAppelsClient(context, page, client, { baseFolder, navTim
             if ((info.nbApercu > 0 || info.nbShowAttach > 0) && cibleHtml === msg && fr !== msg) cibleHtml = fr;
           }
         }
+        // Page du dossier client (webti) : URL + onglets/liens visibles, pour
+        // voir par ou atteindre les documents des praticiens PAMC.
+        try {
+          diag.dossier = {
+            url: cli.url(),
+            liens: await cli.evaluate(() => [...document.querySelectorAll('a, button, [role="tab"], [role="menuitem"]')]
+              .filter((e) => e.offsetParent !== null)
+              .map((e) => (e.textContent || '').replace(/\s+/g, ' ').trim())
+              .filter((t) => t && t.length < 45)
+              .slice(0, 80)),
+          };
+          const htmlDossier = await cli.content().catch(() => '');
+          if (htmlDossier) writeFileSync(resolve(clientDir, '_diagnostic_dossier.html'), htmlDossier, 'utf8');
+        } catch (e) { diag.dossier = { erreur: e.message }; }
         writeFileSync(resolve(clientDir, '_diagnostic.txt'), JSON.stringify(diag, null, 2), 'utf8');
         const html = await cibleHtml.content().catch(() => '');
         if (html) writeFileSync(resolve(clientDir, '_diagnostic_messagerie.html'), html, 'utf8');
