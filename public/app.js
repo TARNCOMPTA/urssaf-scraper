@@ -211,6 +211,20 @@ function majBoutonSelection() {
   const b = $('#btn-scrape-selection');
   b.textContent = `Récupérer la sélection (${n})`;
   b.disabled = n === 0;
+  majBoutonEchecs();
+}
+
+// Clients « en echec » au dernier run (rattaches a un cabinet, statut != succes,
+// ou jamais traites). Permet de relancer seulement ceux-la.
+function clientsEnEchec() {
+  return clientsAll.filter((c) => c.cabinet_id && c.dernier_statut !== 'succes');
+}
+function majBoutonEchecs() {
+  const n = clientsEnEchec().length;
+  const b = $('#btn-retry-echecs');
+  if (!b) return;
+  b.hidden = n === 0;
+  b.textContent = `↻ Relancer les échecs (${n})`;
 }
 
 async function chargerClients() {
@@ -286,6 +300,18 @@ $('#btn-scrape-selection').addEventListener('click', async () => {
   try {
     const r = await api('/api/scrape-selection', { method: 'POST', body: JSON.stringify({ ids }) });
     toast(`Récupération lancée pour ${r.total} client(s).`, 'ok');
+    majEtatGlobal(true);
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+// Relancer uniquement les clients en echec (ou jamais traites)
+$('#btn-retry-echecs').addEventListener('click', async () => {
+  const ids = clientsEnEchec().map((c) => c.id);
+  if (!ids.length) return;
+  if (!confirm(`Relancer la récupération pour ${ids.length} client(s) en échec / non traités ?\n(Les documents déjà présents sont ignorés.)`)) return;
+  try {
+    const r = await api('/api/scrape-selection', { method: 'POST', body: JSON.stringify({ ids }) });
+    toast(`Relance lancée pour ${r.total} client(s).`, 'ok');
     majEtatGlobal(true);
   } catch (err) { toast(err.message, 'err'); }
 });
